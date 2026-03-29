@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Finance Tracker</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<div id="login">
+  <h2>Enter Password</h2>
+  <input type="password" id="password" />
+  <button onclick="checkPassword()">Enter</button>
+</div>
+
+<div id="app" style="display:none;">
+  <h2>Balance: £<span id="balance">0</span></h2>
+
+  <button onclick="setType('in')">Money IN</button>
+  <button onclick="setType('out')">Money OUT</button>
+
+  <br><br>
+  <input type="number" id="amount" placeholder="Amount" />
+  <input type="text" id="note" placeholder="Note" />
+  <input type="month" id="month" />
+  <button onclick="addTransaction()">Add</button>
+
+  <h3>View</h3>
+  <button onclick="setFilter('all')">Full Season</button>
+  <button onclick="setFilter('month')">Selected Month</button>
+
+  <br><br>
+  <input type="month" id="filterMonth" />
+  <button onclick="exportCSV()">Export CSV</button>
+
+  <h3>Chart</h3>
+  <canvas id="chart" width="300" height="150"></canvas>
+
+  <h3>Transactions</h3>
+  <ul id="list"></ul>
+</div>
+
+<script>
+  const PASSWORD = "1234";
+
+  function checkPassword() {
+    if (document.getElementById('password').value === PASSWORD) {
+      document.getElementById('login').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+    } else {
+      alert('Wrong password');
+    }
+  }
+
+  const firebaseConfig = {
+  apiKey: "AIzaSyAT6AEYeGDPABa8DDnTJS9TiiplJjxNS68",
+  authDomain: "thunder-c1cd9.firebaseapp.com",
+  databaseURL: "https://thunder-c1cd9-default-rtdb.firebaseio.com",
+  projectId: "thunder-c1cd9",
+  storageBucket: "thunder-c1cd9.firebasestorage.app",
+  messagingSenderId: "597527033420",
+  appId: "1:597527033420:web:9e20d1ea5aafbcc30ee6e9",
+  measurementId: "G-ZQC7T8EK1M"
+};
+
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  let type = "in";
+  let filterMode = "all";
+  let allData = [];
+  let chart;
+
+  function setType(t) { type = t; }
+  function setFilter(f) { filterMode = f; loadData(); }
+
+  function addTransaction() {
+    const amount = parseFloat(document.getElementById('amount').value);
+    const note = document.getElementById('note').value;
+    const month = document.getElementById('month').value;
+
+    if (!amount || !month) return alert('Enter amount + month');
+
+    db.ref('transactions').push({ amount, note, type, month });
+
+    document.getElementById('amount').value = '';
+    document.getElementById('note').value = '';
+  }
+
+  function deleteTransaction(id) {
+    if (confirm('Delete this transaction?')) {
+      db.ref('transactions/' + id).remove();
+    }
+  }
+
+  function editTransaction(id, oldAmount, oldNote, oldType, oldMonth) {
+    const newAmount = prompt('New amount:', oldAmount);
+    if (newAmount === null) return;
+
+    const newNote = prompt('New note:', oldNote);
+    if (newNote === null) return;
+
+    const newType = prompt('Type (in/out):', oldType);
+    if (newType !== 'in' && newType !== 'out') return alert('Invalid type');
+
+    const newMonth = prompt('Month (YYYY-MM):', oldMonth);
+    if (!newMonth) return;
+
+    db.ref('transactions/' + id).update({
+      amount: parseFloat(newAmount),
+      note: newNote,
+      type: newType,
+      month: newMonth
+    });
+  }
+
+  function exportCSV() {
+    let csv = "Month,Type,Amount,Note\n";
+    allData.forEach(d => {
+      csv += `${d.month},${d.type},${d.amount},${d.note}\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'finance.csv';
+    a.click();
+  }
+
+  function updateChart(data) {
+    const monthly = {};
+
+    data.forEach(d => {
+      if (!monthly[d.month]) monthly[d.month] = 0;
+      if (d.type === 'in') monthly[d.month] += d.amount;
+      else monthly[d.month] -= d.amount;
+    });
+
+    const labels = Object.keys(monthly);
+    const values = Object.values(monthly);
+
+    if (chart) chart.destroy();
+
+    chart = new Chart(document.getElementById('chart'), {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{ data: values }]
+      }
+    });
+  }
+
+  function loadData() {
+    db.ref('transactions').on('value', snapshot => {
+      let balance = 0;
+      const list = document.getElementById('list');
+      list.innerHTML = '';
+      allData = [];
+
+      const selectedMonth = document.getElementById('filterMonth').value;
+
+      snapshot.forEach(child => {
+        const data = child.val();
+        const id = child.key;
+
+        if (filterMode === 'month' && data.month !== selectedMonth) return;
+
+        allData.push(data);
+
+        if (data.type === 'in') balance += data.amount;
+        else balance -= data.amount;
+
+        const li = document.createElement('li');
+        li.innerHTML = `
+          [${data.month}] ${data.type.toUpperCase()} £${data.amount} - ${data.note}
+          <button onclick="editTransaction('${id}', ${data.amount}, '${data.note}', '${data.type}', '${data.month}')">Edit</button>
+          <button onclick="deleteTransaction('${id}')">Delete</button>
+        `;
+        list.appendChild(li);
+      });
+
+      document.getElementById('balance').textContent = balance.toFixed(2);
+      updateChart(allData);
+    });
+  }
+
+  loadData();
+</script>
+
+</body>
+</html>
